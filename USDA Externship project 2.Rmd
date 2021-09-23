@@ -1,0 +1,594 @@
+---
+title: "Clustering and Regression"
+output:
+  pdf_document: default
+  html_document:
+    df_print: paged
+---
+```{r}
+library(readr)
+```
+Loading the data
+
+```{r}
+ Test_original = read_csv("Test original.csv")
+View(Test_original)
+```
+Checking the sums of columns(compositions)
+```{r}
+colSums(data[2:29])
+```
+Removing Complete inhibition concentration column
+```{r}
+data=Test_original
+data= data[-c(120), ]
+View(data)
+```
+
+Giving Weightage to the columns to make the sum 100. Run the next two chunks of code multiple times to make the sums 100 because of decimal points in calculation.
+
+# Normalization-
+
+First, we check our datasets, the sum of the compositions of each essential oil might not equal to 100. If the compositions are in different range, such us, 0-100 or 0-1000, the analysis might work on the big one, and ignore the small one. So, before we analyze the dataset, we need to make all the data equal to 100. To run the dataset precisely.
+
+**Reference:**
+Swetha Lakshmanan, May 16, 2019. How, When, and Why Should You Normalize / Standardize / Rescale Your Data? Data Science, Towards AI. Retrieve from https://towardsai.net/p/data-science/how-when-and-why-should-you-normalize-standardize-rescale-your-data-3f083def38ff
+
+```{r}
+for (i in 2:29){
+  if (colSums(data[i]) != 100){
+    for (x in 1:119){
+      data[x,i]=data[x,i]*(100/colSums(data[i]))
+    }
+ 
+    
+  }
+}
+```
+
+
+
+```{r}
+colSums(data[2:29])
+```
+Loading final data
+
+```{r}
+fin_data=data
+View(fin_data)
+```
+
+Transposing the data frame and adjusting headers
+```{r}
+datafin<- as.data.frame(t(as.matrix(fin_data)))
+names(datafin) <- as.matrix(datafin[1, ])
+datafin <- datafin[-1, ]
+datafin[] <- lapply(datafin, function(x) type.convert(as.character(x)))
+
+View(datafin)
+clusmodeldata=datafin
+```
+
+# Hierarchical clustering for just oil compositions 
+
+**Hierarchical cluster analysis-**
+Hierarchical clustering, also known as hierarchical cluster analysis, is an algorithm that groups similar objects into groups called clusters. The endpoint is a set of clusters, where each cluster is distinct from each other cluster, and the objects within each cluster are broadly similar to each other.
+
+We build hierarchy of clusters on the 28 essential oils. For essential oils in the same cluster, they are related to each other. For those essential oils in different clusters, they have no relationship between each other. The essential oils are being clustered based on their composition and oils in their clusters are very near in their compositions. This clustering done by measuring euclidean distance between composition concentrations of oils.   
+```{r}
+#hierarchical clustering using ward.d method
+dendrogram = hclust(d = dist(clusmodeldata, method = 'euclidean'), method = 'ward.D')
+plot(dendrogram,
+     main = paste('Dendrogram'),
+     xlab = 'Essential oils',
+     ylab = 'Euclidean distances')
+```
+
+```{r}
+#organizing the cluster
+hc = hclust(d = dist(clusmodeldata, method = 'euclidean'), method = 'ward.D')
+y_hc = cutree(hc, 5)
+y_hc
+```
+
+```{r}
+plot(hc)
+rect.hclust(hc , k = 5, border = 2:6)
+abline(h = 3, col = 'red')
+```
+
+```{r}
+suppressPackageStartupMessages(library(dendextend))
+avg_dend_obj <- as.dendrogram(hc)
+avg_col_dend <- color_branches(avg_dend_obj, h = 5)
+plot(avg_col_dend)
+```
+
+```{r}
+#cluster count
+suppressPackageStartupMessages(library(dplyr))
+dataset_cl <- mutate(clusmodeldata, cluster = y_hc)
+count(dataset_cl,cluster)
+```
+Adding new emuslion and MIC data into new dataframe
+```{r}
+newdata= read_csv("Emulsion and MIC.csv")
+newdata= newdata[,-c(4:28) ]
+View(newdata)
+
+```
+Adding new columns to finished data of compositions
+```{r}
+datafin$emulsion = newdata$`emulsion size`
+datafin$MIC = newdata$MIC
+View(datafin)
+```
+
+Creating a dataset without MIC and building Regression Model with Emulsion sizes.
+```{r}
+datafin2 <- datafin[setdiff(names(datafin),c("MIC"))]
+```
+Standardizing the emulsion size
+We want to see if the emulsion sizes have effects or interactions with compositions for the anti-bacterial activities in essential oils. So, we add emulsion in the dataset. Again, we need to normalize emulsion data to be comparable. 
+```{r}
+preproc2 <- preProcess(datafin2[,c(120,120)], method=c("range"))
+ 
+norm2 <- predict(preproc2, datafin2[,c(120,120)])
+norm2 <- norm2[setdiff(names(norm2),c("emulsion.1"))]
+View(norm2)
+
+datafin5= cbind(datafin2,norm2)
+datafin5 <- datafin5[ -c(120) ]
+
+datafin5$emulsion=datafin5$emulsion*100
+datafin5=datafin5/100
+View(datafin5)
+```
+
+
+Building regression model 1 to find correaltion of emulsion size with compsotion. Summary and anova of the model are checked for coefficients and their significance.
+```{r}
+regmodel1=lm(datafin5$emulsion~., data=datafin5)
+summary(regmodel1)
+anova(regmodel1)
+```
+The regression model for emulsion size indicating that there are 27 factors with coefficients and an intercept.The other results such as Adjusted R squared are not presentable. Even though the model has some significance, overall the model is not very useful. We need less factors to make a clear model.  
+
+creating new dataset for MIC scaling range
+```{r}
+datafin3= datafin[setdiff(names(datafin),c("emulsion"))]
+View(datafin3)
+```
+
+Standardizing the MIC data with maximum and minimum range(0,1)
+```{r}
+preproc1 <- preProcess(datafin3[,c(120,120)], method=c("range"))
+ 
+norm1 <- predict(preproc1, datafin3[,c(120,120)])
+norm1 <- norm1[setdiff(names(norm1),c("MIC.1"))]
+View(norm1)
+
+
+```
+Adding norm1 column to new data frame and creating a data frame with only MIC in range(0,1)
+```{r}
+datafin4= cbind(datafin3,norm1)
+datafin4 <- datafin4[ -c(120) ]
+datafin4$MIC=datafin4$MIC*100
+datafin4=datafin4/100
+View(datafin4)
+
+```
+
+Building regression model 1 to find correaltion of emulsion size with compsotion. Summary and anova of the model are checked for coefficients and their significance.
+
+
+**Regression and correlation analysis-**
+Regression model can identify the relationship between variables. On the linear regression, if the coefficients are > 0, they are correlative in a positive linear sense; if the coefficients are < 0, they are correlative in a negative linear sense; the coefficients are = 0, they do not have correlation. 
+
+**Reference:**
+Vincent Granville, July 2020. Difference Between Correlation and Regression in Statistics. Data Science Central. Retrieved from https://www.datasciencecentral.com/profiles/blogs/difference-between-correlation-and-regression-in-statistics
+
+Anova-
+```{r}
+regmodel2=lm(datafin4$MIC~., data=datafin4)
+summary(regmodel2)
+anova(regmodel2)
+```
+The regression model for MIC with components as factors show that there are 27 significant factors that have coefficients in the model.Similarly here, even though the model gives us some understanding on the effects of which components on MIC, it is not very useful and significant models. we need fewer factors for better modeling.
+**Hierarchical Clustering with MIC and compositions**
+Here in the second Clustering model, the oils are clustered based on their compositions and MIC euclidean distances. This model shows us the oils which are very near in both compositions and MIC are clustered together.
+```{r}
+hc2 = hclust(d = dist(datafin4, method = 'euclidean'), method = 'ward.D')
+y_hc2 = cutree(hc2, 5)
+y_hc2
+plot(hc2)
+```
+
+```{r}
+suppressPackageStartupMessages(library(dendextend))
+avg_dend_obj2 <- as.dendrogram(hc2)
+avg_col_dend2 <- color_branches(avg_dend_obj2, h = 5)
+plot(avg_col_dend2)
+```
+
+```{r}
+#cluster count
+suppressPackageStartupMessages(library(dplyr))
+dataset_cl2 <- mutate(datafin4, cluster2 = y_hc2)
+count(dataset_cl2,cluster2)
+```
+
+correlation coefficients
+```{r}
+install.packages("Hmisc")
+```
+
+```{r}
+library(Hmisc)
+```
+```{r}
+cor(datafin4, method = "pearson")
+miccor= cor(datafin4, method = "pearson")
+```
+Two methods above or below....
+```{r}
+rcorr(as.matrix(datafin4))
+```
+
+```{r}
+x4= datafin4[1:119]
+y4=datafin4[120]
+```
+# Correlation for MIC
+
+Here, we analyze the correlation of the coefficients by pearson method. Correlation coefficient analysis can see the correlation between variables. If the values are bigger than 1, we say they have positive correlation; if the values are smaller than -1, we say they have negative correlation. Under the absolute value, the bigger the values, the stronger the correlation between the variables. If the values are zero, it means the variables are unrelated to each other.
+
+References:
+Correlation Coefficient: Simple Definition, Formula, Easy Steps. Statistics How To. Retrieve from: 
+https://www.statisticshowto.com/probability-and-statistics/correlation-coefficient-formula/
+```{r}
+cor(x4, y4, method = "pearson")
+```
+Correaltion for emulsion
+
+```{r}
+cor(datafin5, method = "pearson")
+emucor=cor(datafin5, method = "pearson")
+```
+
+```{r}
+x5= datafin5[1:119]
+y5=datafin5[120]
+```
+```{r}
+cor(x5, y5, method = "pearson")
+```
+
+Exploratory factor analysis
+```{r}
+install.packages("psych")
+install.packages("GPArotation")
+install.packages("nFactors")
+```
+# Exploratory Factor Analysis
+
+We are going to use correlation coefficients and multiple correlation/regression coefficients to reduce the number of components to do Exploratory Factor  Analysis. Exploratory factor analysis is a statistical technique that is used to reduce data to a smaller set of summary variables and to explore the underlying theoretical structure of the phenomena.  It is used to identify the structure of the relationship between the variable and the respondent. 
+```{r}
+library(psych)
+library(ggplot2)
+library(corrplot) #plotting correlation matrices
+library(GPArotation) #methods for factor rotation
+library(nFactors)  #methods for determining the number of factors
+```
+
+```{r}
+
+corrplot(cor(datafin4, method = "pearson"), order = "hclust", tl.col='black', tl.cex=.75)
+```
+
+```{r}
+
+corrplot(cor(datafin5, method = "pearson"), order = "hclust", tl.col='black', tl.cex=.75)
+```
+
+This is to find the number of factors required out of total 120 factors. The output here is number of components/factors according to optimal coordinates (noc), acceleration factor (naf), parallel analysis (nparallel), and Kaiser rule (nkaiser).
+
+```{r}
+ev <- eigen(cor(datafin4)) # get eigenvalues
+ap <- parallel(subject=nrow(datafin4),var=ncol(datafin4),
+  rep=100,cent=.05)
+nS <- nScree(x=ev$values, aparallel=ap$eigen$qevpea)
+plotnScree(nS)
+```
+This is initial principal component analysis for the data as whole. Indicating that the fit has 28 principal components. 
+```{r}
+fit <- prcomp(datafin4, cor=TRUE)
+summary(fit) # print variance accounted for
+loadings(fit) # pc loadings
+plot(fit,type="lines") # scree plot
+fit$scores # the principal components
+biplot(fit)
+```
+
+```{r}
+fit2= principal(datafin4, nfactors=28, rotate="varimax")
+fit2
+```
+
+
+```{r}
+factors_data <- fa(r =miccor, nfactors = 28, rotate = "varimax")
+factors_data
+```
+
+
+Checking the correlation coefficients and multiple regression coefficients.
+```{r}
+z= cor(x4, y4, method = "pearson")
+zdf<- as.data.frame(as.table(z))
+```
+```{r}
+
+zdf = subset(zdf, select = -c(Var2) )
+
+```
+```{r}
+View(zdf)
+```
+
+```{r}
+mrc= as.data.frame(as.table(regmodel2$coefficients))
+```
+
+```{r}
+View(mrc)
+```
+```{r}
+install.packages("writexl")
+```
+```{r}
+library(writexl)
+write_xlsx(mrc ,"MRC.xlsx")
+```
+
+Creating new dataset with 27 factors eliminating others based on multiple regression coefficients.
+```{r}
+fadata= datafin4[, c("(e)-1-(3',4'-dimethoxyphenyl)butadiene",	"Benzyl benzoate","(e)-gamma-Bisabolene","(e)-2-Dodecenal","(e)-beta-Ocimene","beta-Phellandrene", "alpha-Terpinene", "alpha-Humulene", "4-Terpineneol", "alpha-Copaene", "alpha-Fenchene", "beta-Bisabolene", "(e)-alpha-Atlantone",	"alpha-Phellandrene", "beta-Caryophyllene", "alpha-Thujene",	"1,8-Cineole", "alpha-Pinene","beta-Elemene","alpha-Terpineol", "alpha-Turmerone", "alpha-Cadinol", "(e)-2-Decanal","alpha-trans-Bergamotene","3-Octanone","(e)-Nerolidol", "(e)-Cinnamaldehyde")]
+```
+
+```{r}
+View(fadata)
+```
+Principal component analysis for the new data.
+```{r}
+pca <- princomp(fadata, cor=TRUE)
+summary(pca) # print variance accounted for
+loadings(pca) # pc loadings
+plot(pca,type="lines") # scree plot
+pca$scores # the principal components
+biplot(pca)
+```
+```{r}
+pca
+```
+
+Exploratory factor analysis for the data.
+```{r}
+fa <- factanal(fadata, factors = 3, rotation = "varimax", lower = 0.0000001)
+
+```
+
+```{r}
+fa
+```
+
+```{r}
+print(fa, digits=2, cutoff=.3, sort=TRUE)
+# plot factor 1 by factor 2
+load1 <- fa$loadings[,1:2]
+plot(load1,type="n") # set up plot
+text(load1,labels=names(fadata),cex=.7) 
+```
+Factor analysis with 8 factors.
+```{r}
+fa1 <- factanal(fadata, factors = 7, rotation = "varimax", lower = 0.00000001)
+```
+```{r}
+fa1
+```
+```{r}
+print(fa1, digits=2, cutoff=.3, sort=TRUE)
+# plot factor 1 by factor 2
+load2 <- fa1$loadings[,1:2]
+plot(load2,type="n") # set up plot
+text(load2,labels=names(fadata),cex=.7) 
+```
+**Renaming data:**
+The same process has been done again to gain clarity in the visuals and graphs by changing component names.
+```{r}
+library(dplyr)
+
+```
+```{r}
+newfadata= fadata
+colnames(newfadata)
+```
+
+Renaming columns
+```{r}
+newfadata= plyr::rename(
+  newfadata, 
+  replace      = c("(e)-1-(3',4'-dimethoxyphenyl)butadiene" = 'c1',
+       "Benzyl benzoate" = 'c2',                    
+       "(e)-gamma-Bisabolene" = 'c3',                 
+       "(e)-2-Dodecenal"  = 'c4',                     
+   "(e)-beta-Ocimene"  = 'c5',                    
+  "beta-Phellandrene"  = 'c6',                   
+  "alpha-Terpinene"  = 'c7',                    
+  "alpha-Humulene"  = 'c8',                      
+  "4-Terpineneol"  = 'c9',                      
+ "alpha-Copaene" = 'c10',                       
+ "alpha-Fenchene"   = 'c11',                     
+ "beta-Bisabolene"  = 'c12',                     
+ "(e)-alpha-Atlantone" = 'c13',                  
+ "alpha-Phellandrene"  = 'c14',                  
+ "beta-Caryophyllene" = 'c15' ,                  
+ "alpha-Thujene"   = 'c16'     ,                 
+ "1,8-Cineole"  = 'c17'         ,                
+ "alpha-Pinene" = 'c18'   ,                      
+ "beta-Elemene"  = 'c19'   ,                     
+ "alpha-Terpineol" = 'c20'  ,                    
+ "alpha-Turmerone" = 'c21'   ,                   
+ "alpha-Cadinol" = 'c22'      ,               
+ "(e)-2-Decanal" = 'c23'       ,                 
+ "alpha-trans-Bergamotene" = 'c24',              
+ "3-Octanone"  = 'c25'             ,             
+ "(e)-Nerolidol" = 'c26',
+ "(e)-Cinnamaldehyde" = 'c27'),
+  warn_missing = FALSE
+)
+```
+
+Now rechecking the graphs and Exploratory factor analysis
+Plots for correlation
+```{r}
+corrplot(cor(newfadata, use="complete.obs"), order = "original", tl.col='black', tl.cex=.75)
+```
+
+
+
+Principal Component analysis
+```{r}
+fit3 <- princomp(newfadata, cor=TRUE)
+summary(fit3) # print variance accounted for
+loadings(fit3) # pc loadings
+plot(fit3,type="lines") # scree plot
+fit3$scores # the principal components
+biplot(fit3)
+```
+
+```{r}
+loadings(fit3)
+```
+
+```{r}
+fit3
+```
+Using Varimax
+```{r}
+
+fit4 <- principal(newfadata, nfactors=3, rotate="varimax")
+fit4
+```
+**Exploratory factor analysis variances**
+
+Since the goal of factor analysis is to model the interrelationships among items, we focus primarily on the variance and covariance rather than the mean. Factor analysis assumes that variance can be partitioned into two types of variance, common and unique
+
+Common variance is the amount of variance that is shared among a set of items. Items that are highly correlated will share a lot of variance.
+Communality (also called h2) is a definition of common variance that ranges between 0 and 1. Values closer to 1 suggest that extracted factors explain more of the variance of an individual item.
+Unique variance is any portion of variance that’s not common. There are two types:
+Specific variance: is variance that is specific to a particular item
+Error variance: comes from errors of measurement and basically anything unexplained by common or specific variance
+
+we can observe the loadings and uniqueness of components in the analysis.
+
+```{r}
+fit5 <- factanal(newfadata,factors = 3, rotation="varimax", lower = 0.0000001)
+print(fit5, digits=2,cutoff= 0.3, sort=TRUE)
+```
+```{r}
+fit5
+```
+
+```{r}
+load3 <- fa1$loadings[,1:3]
+plot(load3,type="n") # set up plot
+text(load3,labels=names(newfadata),cex=.7) 
+```
+
+```{r}
+library(nFactors)
+ev1 <- eigen(cor(newfadata)) # get eigenvalues
+ap1 <- parallel(subject=nrow(newfadata),var=ncol(newfadata),
+  rep=100,cent=.05)
+nS1 <- nScree(x=ev1$values, aparallel=ap1$eigen$qevpea)
+plotnScree(nS1)
+```
+The graphs indicate that the number of factors can be from 1-7 to 10. We have chosen 7 factors initially and came down to 3 for more better results. 
+
+Similarly factor analysis with 7 factors
+
+```{r}
+fit6 <- factanal(newfadata, factors = 7 , rotation="varimax", lower = 0.00000004)
+print(fit6, digits=2, cutoff=.3, sort=TRUE)
+```
+```{r}
+fit6
+```
+
+```{r}
+install.packages("FactoMineR")
+```
+
+```{r}
+library(FactoMineR)
+result <- PCA(newfadta)
+plot(result,choix="ind",habillage=28)
+```
+
+```{r}
+summary(result)
+```
+
+
+Among the many ways to do latent variable exploratory factor analysis (EFA), one of the better is to use Ordinary Least Squares (OLS) to find the minimum residual (minres) solution. This produces solutions very similar to maximum likelihood even for badly behaved matrices. A variation on minres is to do weighted least squares (WLS). Perhaps the most conventional technique is principal axes (PAF). An eigen value decomposition of a correlation matrix is done and then the communalities for each variable are estimated by the first n factors. These communalities are entered onto the diagonal and the procedure is repeated until the sum(diag(r)) does not vary. Yet another estimate procedure is maximum likelihood. For well behaved matrices, maximum likelihood factor analysis (either in the fa or in the factanal function) is probably preferred. Bootstrapped confidence intervals of the loadings and interfactor correlations are found by fa with n.iter > 1.
+factanal performs a maximum-likelihood factor analysis on a covariance matrix or a data matrix while fa() function is a more general function in the sense that it proposes different fit methods such as Ordinary least square regressions (OLR). fa() also permits to draw a Factor Analysis diagram in order to retrieve visually which factors explain which variables with the different loadings showed.
+
+```{r}
+factors_data1 <- fa(r = cor(newfadata), nfactors = 3, rotate = "varimax")
+factors_data1
+```
+
+Both the methods yielded similar results in terms of loading. You can observe that the root mean square of the residuals (RMSR) is  0.12 is lower, indicating that the three factors are sufficient. 
+
+The plot below describes the loadings of each components on factors.
+```{r}
+plot(factors_data1)
+```
+This is the factor analysis including the MIC data with components.
+```{r}
+factors_data2 <- fa(r =cor(newfadata , method = "pearson"), nfactors = 7, rotate = "varimax")
+factors_data2
+```
+
+
+```{r}
+plot(factors_data2)
+```
+```{r}
+cormat= cor(newfadata, method = "pearson")
+```
+
+```{r}
+fitcor = factanal(covmat = cormat ,n.obs = 28, factors = 3, rotation = "none", lower = 0.0000000004)
+```
+
+```{r}
+fitcor
+```
+
+```{r}
+print(fitcor, digits=2, cutoff=.3, sort=TRUE)
+```
+
+```{r}
+
+```
+
+**References:**
+https://www.statisticssolutions.com/factor-analysis-sem-exploratory-factor-analysis/
+https://rstudio-pubs-static.s3.amazonaws.com/498796_05b4e23682d54da387499507495c7ef6.html
+https://quantdev.ssri.psu.edu/tutorials/intro-basic-exploratory-factor-analysis
+https://www.statmethods.net/advstats/factor.html
+https://stats.idre.ucla.edu/spss/seminars/introduction-to-factor-analysis/a-practical-introduction-to-factor-analysis/
